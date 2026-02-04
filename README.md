@@ -1,5 +1,8 @@
 # 2D Slalom Simulator with ROS2
 
+> **Repository**: `2DslalomSIM`  
+> **ROS2 Package**: `slalom_simulator`
+
 A Pygame-based 2D simulator for autonomous underwater vehicle (AUV) slalom navigation with multi-sensor fusion and ROS2 integration.
 
 ## Overview
@@ -210,7 +213,7 @@ POLE_SEPARATION_STD = 5
 ### Installation
 ```bash
 cd ~/ros2_ws/src
-git clone <repository_url> slalom_simulator
+git clone <repository_url> 2DslalomSIM
 cd ~/ros2_ws
 colcon build --packages-select slalom_simulator
 source install/setup.bash
@@ -245,8 +248,8 @@ You will need to implement:
 
 ### Code Structure
 ```
-slalom_simulator/
-├── slalom_simulator/
+2DslalomSIM/                        # Repository name
+├── slalom_simulator/               # Python package directory
 │   ├── __init__.py
 │   ├── simulator_node.py          # Main Pygame simulator
 │   ├── imu1_localization_node.py  # IMU1 integration
@@ -258,9 +261,9 @@ slalom_simulator/
 │   └── slalom.launch.py           # Launch file
 ├── config/
 │   └── params.yaml                # Configuration parameters
-├── package.xml
-├── setup.py
-└── README.md
+├── package.xml                    # ROS2 package manifest
+├── setup.py                       # Python package setup
+└── README.md                      # Documentation
 ```
 
 ## Physics & Dynamics

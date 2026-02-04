@@ -1,0 +1,44 @@
+/**:
+  ros__parameters:
+    # Pool dimensions
+    pool_width: 600
+    pool_height: 800
+
+    # Vehicle parameters
+    vehicle_size: 40
+    vehicle_start_x: 400.0
+    vehicle_start_y: 500.0
+
+    # IMU1 parameters (more accurate)
+    imu1_bias: [0.01, 0.01, 0.001]
+    imu1_covariance: [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.001]
+
+    # IMU2 parameters (less accurate)
+    imu2_bias: [0.05, 0.05, 0.005]
+    imu2_covariance: [0.05, 0.0, 0.0, 0.0, 0.05, 0.0, 0.0, 0.0, 0.005]
+
+    # Process noise covariance
+    process_noise_q: [0.001, 0.0, 0.0, 0.0, 0.001, 0.0, 0.0, 0.0, 0.0001]
+
+    # Gate parameters
+    num_gates: 3
+    gate_width_mean: 70.0
+    gate_width_std: 5.0
+    pole_separation_mean: 100.0
+    pole_separation_std: 5.0
+
+    # Controller parameters
+    localization_source: "imu1"  # Options: "imu1", "imu2", "kalman"
+
+    # PID gains
+    pid_kp: 0.5
+    pid_ki: 0.01
+    pid_kd: 0.1
+
+    # APF parameters
+    apf_attractive_gain: 2.0
+    apf_repulsive_gain: 50.0
+    apf_repulsive_distance: 50.0
+
+    # Control limits
+    max_control_force: 10.0
