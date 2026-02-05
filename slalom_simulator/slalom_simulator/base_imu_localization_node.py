@@ -19,7 +19,7 @@ from std_msgs.msg import Header
 import numpy as np
 from abc import ABC, abstractmethod
 
-from slalom_simulator.msg import State
+from slalom_interfaces.msg import State
 from slalom_simulator.utils import load_covariance_matrix_3x3, normalize_angle
 
 

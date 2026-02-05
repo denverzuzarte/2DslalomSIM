@@ -24,7 +24,7 @@ from slalom_simulator.utils import (
 )
 
 # Import custom messages (will be generated)
-from slalom_simulator.msg import State, CameraDetections, CameraDetection
+from slalom_interfaces.msg import State, CameraDetections, CameraDetection
 
 
 class SimulatorNode(Node):

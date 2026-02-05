@@ -12,7 +12,7 @@ from geometry_msgs.msg import Vector3
 from std_msgs.msg import Header
 import numpy as np
 
-from slalom_simulator.msg import State, Setpoint
+from slalom_interfaces.msg import State, Setpoint
 from slalom_simulator.utils import normalize_angle
 
 
