@@ -109,3 +109,69 @@ def rotate_point(point: np.ndarray, angle: float, origin: np.ndarray = None) -> 
 def distance(p1: np.ndarray, p2: np.ndarray) -> float:
     """Calculate Euclidean distance between two points"""
     return np.linalg.norm(p1 - p2)
+
+
+def build_Q_matrix(dt: float, sigma_ax2: float, sigma_ay2: float, sigma_alpha2: float) -> np.ndarray:
+    """
+    Build 6x6 process noise covariance matrix for continuous-time random acceleration model.
+
+    This implements the "constant acceleration" or "jerk" process noise model commonly
+    used in Kalman filtering. It assumes that random accelerations (jerk) affect the
+    system, which then propagate to both velocity and position.
+
+    Args:
+        dt: Time step (seconds)
+        sigma_ax2: X-axis acceleration variance (m/s²)²
+        sigma_ay2: Y-axis acceleration variance (m/s²)²
+        sigma_alpha2: Angular acceleration variance (rad/s²)²
+
+    Returns:
+        6x6 process noise covariance matrix for state [x, y, θ, vx, vy, ω]
+
+    The Q matrix has the following block-diagonal structure:
+        Q = diag(Q_x, Q_y, Q_θ)
+
+    where each 2x2 block Q_dim (for dimension x, y, or θ) is:
+        Q_dim = [ (dt⁴/4)σ²    (dt³/2)σ² ]
+                [ (dt³/2)σ²    (dt²)σ²   ]
+
+    The first row/column corresponds to position, the second to velocity.
+    The off-diagonal terms couple position and velocity noise, capturing
+    the fact that random accelerations affect both.
+    """
+    Q = np.zeros((6, 6))
+
+    # X dimension (indices 0=x, 3=vx)
+    Q[0, 0] = (dt**4 / 4) * sigma_ax2   # Position-position
+    Q[0, 3] = Q[3, 0] = (dt**3 / 2) * sigma_ax2  # Position-velocity (coupled)
+    Q[3, 3] = dt**2 * sigma_ax2          # Velocity-velocity
+
+    # Y dimension (indices 1=y, 4=vy)
+    Q[1, 1] = (dt**4 / 4) * sigma_ay2   # Position-position
+    Q[1, 4] = Q[4, 1] = (dt**3 / 2) * sigma_ay2  # Position-velocity (coupled)
+    Q[4, 4] = dt**2 * sigma_ay2          # Velocity-velocity
+
+    # Theta dimension (indices 2=θ, 5=ω)
+    Q[2, 2] = (dt**4 / 4) * sigma_alpha2   # Angle-angle
+    Q[2, 5] = Q[5, 2] = (dt**3 / 2) * sigma_alpha2  # Angle-angular velocity (coupled)
+    Q[5, 5] = dt**2 * sigma_alpha2          # Angular velocity-angular velocity
+
+    return Q
+
+
+def load_covariance_matrix_3x3(param_dict: dict) -> np.ndarray:
+    """
+    Load a 3x3 covariance matrix from parameter dictionary.
+
+    Args:
+        param_dict: Dictionary with keys 'xx', 'xy', 'xt', 'yy', 'yt', 'tt'
+
+    Returns:
+        3x3 symmetric covariance matrix
+    """
+    R = np.array([
+        [param_dict.get('xx', 0.01), param_dict.get('xy', 0.0), param_dict.get('xt', 0.0)],
+        [param_dict.get('xy', 0.0), param_dict.get('yy', 0.01), param_dict.get('yt', 0.0)],
+        [param_dict.get('xt', 0.0), param_dict.get('yt', 0.0), param_dict.get('tt', 0.001)]
+    ])
+    return R

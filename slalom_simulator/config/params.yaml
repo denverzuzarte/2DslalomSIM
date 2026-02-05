@@ -1,0 +1,65 @@
+/**:
+  ros__parameters:
+    # Pool dimensions
+    pool_width: 600
+    pool_height: 800
+
+    # Vehicle parameters
+    vehicle_size: 40
+    vehicle_start_x: 400.0
+    vehicle_start_y: 500.0
+
+    # Process noise covariance (Q matrix) - represents water unsteadiness (waves)
+    # These are editable - default is diagonal matrix
+    process_noise:
+      sigma_ax_squared: 0.01
+      sigma_ay_squared: 0.01
+      sigma_alpha_squared: 0.001
+
+    # IMU1 measurement noise (R matrix) - can have full covariance
+    imu1_R:
+      xx: 0.01      # X acceleration variance
+      xy: 0.0       # X-Y covariance
+      xt: 0.0       # X-Theta covariance
+      yy: 0.01      # Y acceleration variance
+      yt: 0.0       # Y-Theta covariance
+      tt: 0.001     # Theta (angular) acceleration variance
+
+    # IMU1 bias [ax_bias, ay_bias, alpha_bias]
+    imu1_bias: [0.01, 0.01, 0.001]
+
+    # IMU2 measurement noise (R matrix) - different from IMU1
+    imu2_R:
+      xx: 0.05      # X acceleration variance (5x worse than IMU1)
+      xy: 0.0       # X-Y covariance
+      xt: 0.0       # X-Theta covariance
+      yy: 0.05      # Y acceleration variance (5x worse than IMU1)
+      yt: 0.0       # Y-Theta covariance
+      tt: 0.005     # Theta (angular) acceleration variance (5x worse than IMU1)
+
+    # IMU2 bias [ax_bias, ay_bias, alpha_bias] - different from IMU1
+    imu2_bias: [0.05, 0.05, 0.005]
+
+    # Gate parameters
+    num_gates: 3
+    gate_width_mean: 70.0
+    gate_width_std: 5.0
+    pole_separation_mean: 100.0
+    pole_separation_std: 5.0
+
+    # Camera parameters
+    camera_fov_degrees: 60.0
+    camera_fps: 8.0
+    camera_pixel_variance: 4.0
+    camera_range_max: 200.0
+
+    # Controller parameters
+    localization_source: "imu1"  # Options: "imu1", "imu2", "kalman"
+
+    # PID gains
+    pid_kp: 0.5
+    pid_ki: 0.01
+    pid_kd: 0.1
+
+    # Control limits
+    max_control_force: 10.0
