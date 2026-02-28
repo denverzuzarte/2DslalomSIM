@@ -144,20 +144,20 @@ class SimulatorNode(Node):
         self.kalman_state_sub = self.create_subscription(
             State, '/kalman/state', self.kalman_state_callback, 10)
 
+        # Last acceleration for IMU (initialize BEFORE starting thread)
+        self.last_accel = np.array([0.0, 0.0])
+        self.last_angular_accel = 0.0
+
         # Timers
         self.create_timer(1.0 / 60.0, self.simulation_step)  # 60 Hz
         self.create_timer(1.0 / self.camera_fps, self.publish_camera_detections)  # Camera FPS
         self.create_timer(1.0 / 30.0, self.publish_camera_frame)  # 30 Hz for frame
         self.create_timer(1.0, self.publish_gates)            # 1 Hz
 
-        # Start IMU publishing thread
-        self.imu_thread = threading.Thread(target=self.imu_publishing_loop, daemon=True)
+        # Start IMU publishing thread (after initializing last_accel)
         self.imu_running = True
+        self.imu_thread = threading.Thread(target=self.imu_publishing_loop, daemon=True)
         self.imu_thread.start()
-
-        # Last acceleration for IMU
-        self.last_accel = np.array([0.0, 0.0])
-        self.last_angular_accel = 0.0
 
         self.get_logger().info('Simulator node initialized')
         self.publish_gates()  # Publish gates immediately
