@@ -8,37 +8,48 @@
     vehicle_size: 40
     vehicle_start_x: 400.0
     vehicle_start_y: 500.0
+    vehicle_start_z: 0.0       # starts at surface
 
-    # Process noise covariance (Q matrix) - represents water unsteadiness (waves)
-    # These are editable - default is diagonal matrix
+    # Buoyancy: upward acceleration when submerged (cm/s^2, negative = upward)
+    buoyancy_accel: -0.10
+
+    # Process noise (Q matrix) — ~60% reduction from original
     process_noise:
-      sigma_ax_squared: 0.01
-      sigma_ay_squared: 0.01
-      sigma_alpha_squared: 0.001
+      sigma_ax_squared: 0.004     # X accel variance  (was 0.01)
+      sigma_ay_squared: 0.004     # Y accel variance  (was 0.01)
+      sigma_az_squared: 0.002     # Z accel variance  (was 0.005)
+      sigma_alpha_squared: 0.0004 # Angular accel variance (was 0.001)
 
-    # IMU1 measurement noise (R matrix) - can have full covariance
+    # IMU1 measurement noise (R matrix) — ~60% reduction from original
     imu1_R:
-      xx: 0.01      # X acceleration variance
-      xy: 0.0       # X-Y covariance
-      xt: 0.0       # X-Theta covariance
-      yy: 0.01      # Y acceleration variance
-      yt: 0.0       # Y-Theta covariance
-      tt: 0.001     # Theta (angular) acceleration variance
+      xx: 0.004     # ax variance  (was 0.01)
+      yy: 0.004     # ay variance  (was 0.01)
+      zz: 0.002     # az variance  (was 0.005)
+      tt: 0.0004    # alpha variance (was 0.001)
 
-    # IMU1 bias [ax_bias, ay_bias, alpha_bias]
-    imu1_bias: [0.01, 0.01, 0.001]
+    # IMU1 bias [ax, ay, az, alpha] — ~60% reduction
+    imu1_bias: [0.004, 0.004, 0.002, 0.0004]
 
-    # IMU2 measurement noise (R matrix) - different from IMU1
+    # IMU2 measurement noise (5x worse than IMU1) — ~60% reduction from original
     imu2_R:
-      xx: 0.05      # X acceleration variance (5x worse than IMU1)
-      xy: 0.0       # X-Y covariance
-      xt: 0.0       # X-Theta covariance
-      yy: 0.05      # Y acceleration variance (5x worse than IMU1)
-      yt: 0.0       # Y-Theta covariance
-      tt: 0.005     # Theta (angular) acceleration variance (5x worse than IMU1)
+      xx: 0.02      # (was 0.05)
+      yy: 0.02      # (was 0.05)
+      zz: 0.01      # (was 0.025)
+      tt: 0.002     # (was 0.005)
 
-    # IMU2 bias [ax_bias, ay_bias, alpha_bias] - different from IMU1
-    imu2_bias: [0.05, 0.05, 0.005]
+    # IMU2 bias [ax, ay, az, alpha] — ~60% reduction
+    imu2_bias: [0.02, 0.02, 0.01, 0.002]
+
+    # Pressure sensor parameters
+    ps_freq: 10.0              # Hz
+    ps_noise_variance: 0.004   # depth noise variance (cm^2)  (was 0.01, -60%)
+
+    # Pressure sensor Z fusion weight (0=IMU-only, 1=PS-only)
+    # PS is the primary/default source for Z; IMU Vz differentiated from PS
+    ps_weight_z: 0.7
+
+    # Kalman node — disabled by default; set to true to enable /kalman/state output
+    kalman_enabled: false
 
     # Gate parameters
     num_gates: 3
@@ -54,7 +65,7 @@
     camera_range_max: 200.0
 
     # Controller parameters
-    localization_source: "imu1"  # Options: "imu1", "imu2", "kalman"
+    localization_source: "imu1"   # Options: imu1, imu2, kalman
 
     # PID gains
     pid_kp: 0.5

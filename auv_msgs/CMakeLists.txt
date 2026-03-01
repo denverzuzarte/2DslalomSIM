@@ -9,7 +9,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(unique_identifier_msgs REQUIRED)  # Added this dependency
+find_package(unique_identifier_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 # Generate message and service files
@@ -50,7 +51,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/VisionTask.srv"
   "action/Interrupt.action"
   "msg/CurrentNavId.msg"
-  DEPENDENCIES geometry_msgs sensor_msgs unique_identifier_msgs
+  "msg/ImuAccel.msg"
+  DEPENDENCIES geometry_msgs sensor_msgs unique_identifier_msgs std_msgs
 )
 
 # Testing

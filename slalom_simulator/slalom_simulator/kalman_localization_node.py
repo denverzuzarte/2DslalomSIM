@@ -1,194 +1,167 @@
 #!/usr/bin/env python3
 """
-Kalman Localization Node - PLACEHOLDER/STUB
-This is a placeholder for the Unscented Kalman Filter (UKF) implementation.
-Fuses IMU1 and IMU2 measurements to provide optimal state estimation.
+Kalman Localization Node — PLACEHOLDER/STUB
+Fuses IMU1, IMU2, and pressure sensor (PS) state estimates;
+publishes to /kalman/state as AuvState.
 
-TODO: Implement the following:
-  - Unscented Kalman Filter (UKF) algorithm
-  - State prediction using process model
-  - Measurement update using both IMU measurements
-  - Proper covariance propagation
+Publishing is DISABLED by default (kalman_enabled param = false).
+Set kalman_enabled:=true in params or launch to enable output.
+
+Z measurement: PS depth is used as the primary Z observation.
+Vz: differentiated from consecutive PS readings.
+
+TODO: Implement proper UKF with 8D state [x,y,z,yaw,vx,vy,vz,wyaw].
 """
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Imu
-from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import Header
 import numpy as np
+
+from auv_msgs.msg import AuvState, PsData
+from slalom_simulator.utils import normalize_angle
 
 
 class KalmanLocalizationNode(Node):
     def __init__(self):
         super().__init__('kalman_localization_node')
 
-        # Declare and get parameters
         self.declare_parameters(
             namespace='',
             parameters=[
                 ('vehicle_start_x', 400.0),
                 ('vehicle_start_y', 500.0),
-                ('process_noise_q', [0.001, 0.0, 0.0, 0.0, 0.001, 0.0, 0.0, 0.0, 0.0001]),
-                ('imu1_covariance', [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.001]),
-                ('imu2_covariance', [0.05, 0.0, 0.0, 0.0, 0.05, 0.0, 0.0, 0.0, 0.005]),
+                ('vehicle_start_z', 0.0),
+                ('kalman_enabled', False),   # off by default
+                ('ps_weight_z', 0.7),
             ]
         )
 
-        # Initialize state [x, y, yaw, vx, vy, omega]
-        start_x = 400 #self.get_parameter('vehicle_start_x').value
-        start_y = 100 #self.get_parameter('vehicle_start_y').value
-        self.state = np.array([start_x, start_y, 0.0, 0.0, 0.0, 0.0])
+        start_x = self.get_parameter('vehicle_start_x').value
+        start_y = self.get_parameter('vehicle_start_y').value
+        start_z = self.get_parameter('vehicle_start_z').value
+        self.kalman_enabled = self.get_parameter('kalman_enabled').value
+        self.ps_weight_z = self.get_parameter('ps_weight_z').value
 
-        # Initialize state covariance
-        self.P = np.eye(6) * 0.1
+        # 8D state: [x, y, z, yaw, vx, vy, vz, wyaw]
+        self.state = np.array([start_x, start_y, start_z,
+                               0.0, 0.0, 0.0, 0.0, 0.0])
+        self.P = np.eye(8) * 0.1
 
-        # Process noise covariance
-        self.Q = np.array(self.get_parameter('process_noise_q').value).reshape(3, 3)
+        # Latest AuvState from each IMU
+        self.imu1_data: AuvState = None
+        self.imu2_data: AuvState = None
 
-        # Measurement noise covariances
-        self.R1 = np.array(self.get_parameter('imu1_covariance').value).reshape(3, 3)
-        self.R2 = np.array(self.get_parameter('imu2_covariance').value).reshape(3, 3)
-
-        # Last timestamp
-        self.last_time = None
-
-        # IMU measurement buffers
-        self.imu1_data = None
-        self.imu2_data = None
+        # PS state for Z fusion
+        self.ps_z: float = None
+        self.ps_z_prev: float = None
+        self.ps_time_prev: float = None
 
         # Publisher
-        self.pose_pub = self.create_publisher(PoseStamped, '/kalman/pose', 10)
+        self.state_pub = self.create_publisher(AuvState, '/kalman/state', 10)
 
-        # Subscribers
+        # Subscribers — listen to IMU state estimates
         self.imu1_sub = self.create_subscription(
-            Imu, '/imu1/data', self.imu1_callback, 10)
+            AuvState, '/imu1/state', self.imu1_callback, 10)
         self.imu2_sub = self.create_subscription(
-            Imu, '/imu2/data', self.imu2_callback, 10)
+            AuvState, '/imu2/state', self.imu2_callback, 10)
+        # Pressure sensor for Z fusion
+        self.ps_sub = self.create_subscription(
+            PsData, '/pressure_sensor/data', self.ps_callback, 10)
 
-        self.get_logger().info('Kalman Localization node initialized (PLACEHOLDER - UKF not implemented)')
-        self.get_logger().warn('This is a stub node. Implement UKF for sensor fusion!')
+        if self.kalman_enabled:
+            self.get_logger().info('Kalman node initialized — publishing ENABLED (STUB, naive average)')
+            self.get_logger().warn('Currently naive average of IMU1/IMU2 + PS-Z. Replace with UKF!')
+        else:
+            self.get_logger().info('Kalman node initialized — publishing DISABLED (kalman_enabled=false)')
 
-    def imu1_callback(self, msg):
-        """Receive IMU1 measurements"""
+    def ps_callback(self, msg: PsData):
+        """Cache PS depth and compute Vz by differentiation."""
+        now = self.get_clock().now().nanoseconds * 1e-9
+        new_z = msg.depth
+
+        if self.ps_z is not None and self.ps_time_prev is not None:
+            dt_ps = now - self.ps_time_prev
+            if 0 < dt_ps < 0.5:
+                ps_vz = (new_z - self.ps_z) / dt_ps
+                w = self.ps_weight_z
+                self.state[6] = (1.0 - w) * self.state[6] + w * ps_vz
+
+        self.ps_z_prev = self.ps_z
+        self.ps_z = new_z
+        self.ps_time_prev = now
+
+    def imu1_callback(self, msg: AuvState):
         self.imu1_data = msg
-        self.process_measurements()
+        self._fuse()
 
-    def imu2_callback(self, msg):
-        """Receive IMU2 measurements"""
+    def imu2_callback(self, msg: AuvState):
         self.imu2_data = msg
-        self.process_measurements()
+        self._fuse()
 
-    def process_measurements(self):
+    def _fuse(self):
         """
-        TODO: Implement UKF measurement processing
-
-        Steps to implement:
-        1. Prediction step:
-           - Generate sigma points from current state and covariance
-           - Propagate sigma points through process model
-           - Compute predicted state and covariance
-
-        2. Update step (for each IMU):
-           - Transform sigma points through measurement model
-           - Compute innovation and Kalman gain
-           - Update state and covariance
-
-        3. Publish fused estimate
+        PLACEHOLDER: naive average of IMU1 and IMU2 state estimates,
+        with PS used as primary Z measurement.
+        Replace with UKF prediction + update steps.
         """
-        # PLACEHOLDER: Simple average of IMU measurements (NOT A REAL KALMAN FILTER!)
         if self.imu1_data is None or self.imu2_data is None:
             return
 
-        # Get timestamps
-        t1 = self.imu1_data.header.stamp.sec + self.imu1_data.header.stamp.nanosec * 1e-9
-        t2 = self.imu2_data.header.stamp.sec + self.imu2_data.header.stamp.nanosec * 1e-9
-        current_time = (t1 + t2) / 2.0
+        d1 = self.imu1_data
+        d2 = self.imu2_data
 
-        if self.last_time is None:
-            self.last_time = current_time
+        # Simple average for XY/yaw/velocities
+        x   = (d1.position.x + d2.position.x) / 2.0
+        y   = (d1.position.y + d2.position.y) / 2.0
+        yaw = normalize_angle(
+            (d1.orientation.yaw + d2.orientation.yaw) / 2.0)
+        vx  = (d1.velocity.x + d2.velocity.x) / 2.0
+        vy  = (d1.velocity.y + d2.velocity.y) / 2.0
+        wyaw = (d1.angular_velocity.z + d2.angular_velocity.z) / 2.0
+
+        # Z: PS is primary; fall back to IMU average if PS unavailable
+        imu_z  = (d1.position.z + d2.position.z) / 2.0
+        imu_vz = (d1.velocity.z + d2.velocity.z) / 2.0
+        if self.ps_z is not None:
+            w = self.ps_weight_z
+            z  = (1.0 - w) * imu_z + w * self.ps_z
+            # Vz from self.state[6] is already blended in ps_callback
+            vz = self.state[6]
+        else:
+            z  = imu_z
+            vz = imu_vz
+
+        self.state = np.array([x, y, z, yaw, vx, vy, vz, wyaw])
+
+        if not self.kalman_enabled:
             return
 
-        dt = current_time - self.last_time
-        if dt <= 0 or dt > 0.1:
-            self.last_time = current_time
-            return
+        stamp = d1.header.stamp
+        self._publish(stamp)
 
-        # PLACEHOLDER: Naive averaging (replace with UKF!)
-        ax = (self.imu1_data.linear_acceleration.x + self.imu2_data.linear_acceleration.x) / 2.0
-        ay = (self.imu1_data.linear_acceleration.y + self.imu2_data.linear_acceleration.y) / 2.0
-        omega = (self.imu1_data.angular_velocity.z + self.imu2_data.angular_velocity.z) / 2.0
-
-        # Simple integration (NOT A KALMAN FILTER!)
-        x, y, yaw, vx, vy, old_omega = self.state
-
-        vx += ax * dt
-        vy += ay * dt
-        x += vx * dt
-        y += vy * dt
-        yaw += omega * dt
-
-        # Normalize yaw
-        while yaw > np.pi:
-            yaw -= 2 * np.pi
-        while yaw < -np.pi:
-            yaw += 2 * np.pi
-
-        self.state = np.array([x, y, yaw, vx, vy, omega])
-        self.last_time = current_time
-
-        # Publish estimate
-        self.publish_pose(self.imu1_data.header.stamp)
-
-    def predict(self, dt):
-        """
-        TODO: Implement UKF prediction step
-
-        Unscented transform prediction:
-        1. Generate sigma points from current state and covariance P
-        2. Propagate each sigma point through process model f(x, dt)
-        3. Compute predicted mean and covariance from transformed sigma points
-        4. Add process noise Q
-        """
-        pass
-
-    def update(self, measurement, R):
-        """
-        TODO: Implement UKF update step
-
-        Unscented transform update:
-        1. Generate sigma points from predicted state and covariance
-        2. Transform sigma points through measurement model h(x)
-        3. Compute predicted measurement and innovation covariance
-        4. Compute cross-covariance and Kalman gain
-        5. Update state estimate and covariance
-        """
-        pass
-
-    def publish_pose(self, timestamp):
-        """Publish estimated pose"""
-        msg = PoseStamped()
-        msg.header = Header()
-        msg.header.stamp = timestamp
+    def _publish(self, stamp):
+        x, y, z, yaw, vx, vy, vz, wyaw = self.state
+        msg = AuvState()
+        msg.header.stamp = stamp
         msg.header.frame_id = 'world'
-
-        x, y, yaw, _, _, _ = self.state
-        msg.pose.position.x = float(x)
-        msg.pose.position.y = float(y)
-        msg.pose.position.z = 0.0
-
-        # Convert yaw to quaternion
-        msg.pose.orientation.w = float(np.cos(yaw / 2))
-        msg.pose.orientation.x = 0.0
-        msg.pose.orientation.y = 0.0
-        msg.pose.orientation.z = float(np.sin(yaw / 2))
-
-        self.pose_pub.publish(msg)
+        msg.position.x = float(x)
+        msg.position.y = float(y)
+        msg.position.z = float(z)
+        msg.velocity.x = float(vx)
+        msg.velocity.y = float(vy)
+        msg.velocity.z = float(vz)
+        msg.orientation.roll = 0.0
+        msg.orientation.pitch = 0.0
+        msg.orientation.yaw = float(yaw)
+        msg.angular_velocity.x = 0.0
+        msg.angular_velocity.y = 0.0
+        msg.angular_velocity.z = float(wyaw)
+        msg.depth = float(z)
+        self.state_pub.publish(msg)
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = KalmanLocalizationNode()
-
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

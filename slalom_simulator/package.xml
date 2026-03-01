@@ -3,7 +3,7 @@
 <package format="3">
   <name>slalom_simulator</name>
   <version>0.0.1</version>
-  <description>2D Slalom Simulator with ROS2 - A Pygame-based simulator for AUV navigation with multi-sensor fusion</description>
+  <description>AUV 3D Simulator with ROS2 - Pygame-based 3D physics simulator (2D top-down display) for AUV navigation with multi-sensor fusion</description>
   <maintainer email="user@example.com">User</maintainer>
   <license>MIT</license>
 
@@ -13,11 +13,7 @@
   <depend>visualization_msgs</depend>
   <depend>std_msgs</depend>
   <depend>cv_bridge</depend>
-
-  <!-- Message generation dependencies -->
-  <build_depend>rosidl_default_generators</build_depend>
-  <exec_depend>rosidl_default_runtime</exec_depend>
-  <member_of_group>rosidl_interface_packages</member_of_group>
+  <depend>auv_msgs</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

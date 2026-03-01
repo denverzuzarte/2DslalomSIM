@@ -19,7 +19,7 @@ setup(
     zip_safe=True,
     maintainer='User',
     maintainer_email='user@example.com',
-    description='2D Slalom Simulator with ROS2',
+    description='AUV 3D Simulator with ROS2 (2D display)',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
@@ -29,6 +29,7 @@ setup(
             'imu2_localization_node = slalom_simulator.imu2_localization_node:main',
             'kalman_localization_node = slalom_simulator.kalman_localization_node:main',
             'controller_node = slalom_simulator.controller_node:main',
+            'pressure_sensor_node = slalom_simulator.pressure_sensor_node:main',
         ],
     },
 )

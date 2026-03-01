@@ -1,8 +1,8 @@
 """
-Utility functions for slalom simulator
+Utility functions for AUV 3D simulator
 """
 import numpy as np
-from typing import List, Tuple
+from typing import List
 
 # Constants
 POOL_WIDTH = 600
@@ -27,51 +27,33 @@ def generate_gates(num_gates: int = 3,
                    pole_separation_std: float = 5.0) -> List[dict]:
     """
     Generate slalom gates with zig-zag constraint, clustered near the top.
-
-    Args:
-        num_gates: Number of gates to generate
-        pool_width: Width of the swimming pool in pixels
-        pool_height: Height of the swimming pool in pixels
-        gate_width_mean: Mean width of the gate opening
-        gate_width_std: Standard deviation of gate width
-        pole_separation_mean: Mean distance between red and white poles
-        pole_separation_std: Standard deviation of pole separation
-
-    Returns:
-        List of gate dictionaries with 'center', 'orientation', 'red_pole', 'white_pole'
+    Gate pole positions are 2D (x, y); Z is always 0 for gates.
     """
     gates = []
 
-    # Generate gate centers clustered near the top third of the pool
     y_start = 100
-    y_end = pool_height * 0.4  # Focus on top 40% of screen
+    y_end = pool_height * 0.4
     y_spacing = (y_end - y_start) / (num_gates - 1) if num_gates > 1 else 0
 
     for i in range(num_gates):
-        # Gate center position - alternating left/right for zig-zag
         if i % 2 == 0:
             center_x = pool_width * 0.40 + np.random.normal(0, 5)
         else:
             center_x = pool_width * 0.50 + np.random.normal(0, 5)
-        
+
         center_y = y_start + i * y_spacing + np.random.normal(0, 3)
         center = np.array([center_x, center_y])
 
-        # Orientation varies within ±20 degrees (±π/9 radians)
-        base_orientation = np.pi/2  # Start from vertical (pointing down)
-        orientation = base_orientation + np.random.uniform(-np.pi/18, np.pi/18)
+        base_orientation = np.pi / 2
+        orientation = base_orientation + np.random.uniform(-np.pi / 18, np.pi / 18)
 
-        # Forward and right axes based on orientation
-        forward_axis = np.array([np.cos(orientation), np.sin(orientation)])
         right_axis = np.array([-np.sin(orientation), np.cos(orientation)])
 
-        # Red pole ALWAYS on the RIGHT side, white pole ALWAYS on the LEFT side
-        # when looking in the direction of travel (downward/forward)
         red_offset = np.random.normal(0, 5)
         white_offset = np.random.normal(0, 5)
-        
-        red_pole = center + (pole_separation_mean/2 + red_offset) * right_axis
-        white_pole = center - (pole_separation_mean/2 + white_offset) * right_axis
+
+        red_pole = center + (pole_separation_mean / 2 + red_offset) * right_axis
+        white_pole = center - (pole_separation_mean / 2 + white_offset) * right_axis
 
         gates.append({
             'center': center,
@@ -93,14 +75,12 @@ def normalize_angle(angle: float) -> float:
 
 
 def rotate_point(point: np.ndarray, angle: float, origin: np.ndarray = None) -> np.ndarray:
-    """Rotate a point around an origin by an angle"""
+    """Rotate a 2D point around an origin by an angle"""
     if origin is None:
         origin = np.array([0, 0])
-
     cos_a = np.cos(angle)
     sin_a = np.sin(angle)
     rotation_matrix = np.array([[cos_a, -sin_a], [sin_a, cos_a]])
-
     translated = point - origin
     rotated = rotation_matrix @ translated
     return rotated + origin
@@ -111,67 +91,57 @@ def distance(p1: np.ndarray, p2: np.ndarray) -> float:
     return np.linalg.norm(p1 - p2)
 
 
-def build_Q_matrix(dt: float, sigma_ax2: float, sigma_ay2: float, sigma_alpha2: float) -> np.ndarray:
+def build_Q_matrix(dt: float,
+                   sigma_ax2: float, sigma_ay2: float, sigma_az2: float,
+                   sigma_alpha2: float) -> np.ndarray:
     """
-    Build 6x6 process noise covariance matrix for continuous-time random acceleration model.
+    Build 8x8 process noise covariance matrix for 3D constant-acceleration model.
 
-    This implements the "constant acceleration" or "jerk" process noise model commonly
-    used in Kalman filtering. It assumes that random accelerations (jerk) affect the
-    system, which then propagate to both velocity and position.
+    State order: [x, y, z, yaw, vx, vy, vz, wyaw]
+    Indices:       0  1  2   3   4   5   6    7
 
-    Args:
-        dt: Time step (seconds)
-        sigma_ax2: X-axis acceleration variance (m/s²)²
-        sigma_ay2: Y-axis acceleration variance (m/s²)²
-        sigma_alpha2: Angular acceleration variance (rad/s²)²
-
-    Returns:
-        6x6 process noise covariance matrix for state [x, y, θ, vx, vy, ω]
-
-    The Q matrix has the following block-diagonal structure:
-        Q = diag(Q_x, Q_y, Q_θ)
-
-    where each 2x2 block Q_dim (for dimension x, y, or θ) is:
-        Q_dim = [ (dt⁴/4)σ²    (dt³/2)σ² ]
-                [ (dt³/2)σ²    (dt²)σ²   ]
-
-    The first row/column corresponds to position, the second to velocity.
-    The off-diagonal terms couple position and velocity noise, capturing
-    the fact that random accelerations affect both.
+    Each kinematic dimension contributes a 2x2 block coupling position and velocity.
     """
-    Q = np.zeros((6, 6))
+    Q = np.zeros((8, 8))
 
-    # X dimension (indices 0=x, 3=vx)
-    Q[0, 0] = (dt**4 / 4) * sigma_ax2   # Position-position
-    Q[0, 3] = Q[3, 0] = (dt**3 / 2) * sigma_ax2  # Position-velocity (coupled)
-    Q[3, 3] = dt**2 * sigma_ax2          # Velocity-velocity
+    def _q2(sigma2):
+        return np.array([
+            [(dt ** 4 / 4) * sigma2, (dt ** 3 / 2) * sigma2],
+            [(dt ** 3 / 2) * sigma2,  dt ** 2 * sigma2]
+        ])
 
-    # Y dimension (indices 1=y, 4=vy)
-    Q[1, 1] = (dt**4 / 4) * sigma_ay2   # Position-position
-    Q[1, 4] = Q[4, 1] = (dt**3 / 2) * sigma_ay2  # Position-velocity (coupled)
-    Q[4, 4] = dt**2 * sigma_ay2          # Velocity-velocity
+    # X: position index 0, velocity index 4
+    q = _q2(sigma_ax2)
+    Q[0, 0] = q[0, 0]; Q[0, 4] = q[0, 1]
+    Q[4, 0] = q[1, 0]; Q[4, 4] = q[1, 1]
 
-    # Theta dimension (indices 2=θ, 5=ω)
-    Q[2, 2] = (dt**4 / 4) * sigma_alpha2   # Angle-angle
-    Q[2, 5] = Q[5, 2] = (dt**3 / 2) * sigma_alpha2  # Angle-angular velocity (coupled)
-    Q[5, 5] = dt**2 * sigma_alpha2          # Angular velocity-angular velocity
+    # Y: position index 1, velocity index 5
+    q = _q2(sigma_ay2)
+    Q[1, 1] = q[0, 0]; Q[1, 5] = q[0, 1]
+    Q[5, 1] = q[1, 0]; Q[5, 5] = q[1, 1]
+
+    # Z: position index 2, velocity index 6
+    q = _q2(sigma_az2)
+    Q[2, 2] = q[0, 0]; Q[2, 6] = q[0, 1]
+    Q[6, 2] = q[1, 0]; Q[6, 6] = q[1, 1]
+
+    # Yaw: angle index 3, angular velocity index 7
+    q = _q2(sigma_alpha2)
+    Q[3, 3] = q[0, 0]; Q[3, 7] = q[0, 1]
+    Q[7, 3] = q[1, 0]; Q[7, 7] = q[1, 1]
 
     return Q
 
 
-def load_covariance_matrix_3x3(param_dict: dict) -> np.ndarray:
+def load_covariance_matrix_4x4(param_dict: dict) -> np.ndarray:
     """
-    Load a 3x3 covariance matrix from parameter dictionary.
-
-    Args:
-        param_dict: Dictionary with keys 'xx', 'xy', 'xt', 'yy', 'yt', 'tt'
-
-    Returns:
-        3x3 symmetric covariance matrix
+    Load a 4x4 diagonal covariance matrix for [ax, ay, az, alpha] measurement noise.
+    Keys: 'xx', 'yy', 'zz', 'tt'
     """
-    R = np.array([
-        [param_dict.get('xx', 0.01), param_dict.get('xy', 0.0), param_dict.get('xt', 0.0)],
-        [param_dict.get('xy', 0.0), param_dict.get('yy', 0.01), param_dict.get('yt', 0.0)],
-        [param_dict.get('xt', 0.0), param_dict.get('yt', 0.0), param_dict.get('tt', 0.001)]
+    R = np.diag([
+        param_dict.get('xx', 0.01),
+        param_dict.get('yy', 0.01),
+        param_dict.get('zz', 0.01),
+        param_dict.get('tt', 0.001),
     ])
     return R

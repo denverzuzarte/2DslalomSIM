@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """
-Launch file for 2D Slalom Simulator
-Launches all nodes with configurable localization source
+Launch file for AUV 3D Simulator.
+
+Removed topics:
+  /control/command  — internal bridge (eliminated)
+  /control/force    — redundant force echo (eliminated)
+
+Changed topics:
+  /imu1/accel, /imu2/accel → ImuAccel (combined linear + angular)
+  /controller/force         → ImuAccel (6D output from controller)
+  /controller/setpoint      → AuvState (full state setpoint)
+
+Kalman node: always launched but publishes only if kalman_enabled=true in params.yaml.
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -11,20 +21,15 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    # Declare launch arguments
     localization_arg = DeclareLaunchArgument(
         'localization',
         default_value='imu1',
-        description='Localization source: imu1, imu2, or kalman'
+        description='Localization source for controller: imu1 or imu2'
     )
 
-    # Get package share directory
     pkg_share = FindPackageShare('slalom_simulator')
-
-    # Path to params file
     params_file = PathJoinSubstitution([pkg_share, 'config', 'params.yaml'])
 
-    # Simulator node
     simulator_node = Node(
         package='slalom_simulator',
         executable='simulator_node',
@@ -33,7 +38,6 @@ def generate_launch_description():
         parameters=[params_file],
     )
 
-    # IMU1 localization node
     imu1_localization_node = Node(
         package='slalom_simulator',
         executable='imu1_localization_node',
@@ -42,7 +46,6 @@ def generate_launch_description():
         parameters=[params_file],
     )
 
-    # IMU2 localization node
     imu2_localization_node = Node(
         package='slalom_simulator',
         executable='imu2_localization_node',
@@ -51,7 +54,7 @@ def generate_launch_description():
         parameters=[params_file],
     )
 
-    # Kalman localization node (stub)
+    # Kalman node: always running, publishing gated by kalman_enabled param
     kalman_localization_node = Node(
         package='slalom_simulator',
         executable='kalman_localization_node',
@@ -60,7 +63,14 @@ def generate_launch_description():
         parameters=[params_file],
     )
 
-    # Controller node
+    pressure_sensor_node = Node(
+        package='slalom_simulator',
+        executable='pressure_sensor_node',
+        name='pressure_sensor_node',
+        output='screen',
+        parameters=[params_file],
+    )
+
     controller_node = Node(
         package='slalom_simulator',
         executable='controller_node',
@@ -78,5 +88,6 @@ def generate_launch_description():
         imu1_localization_node,
         imu2_localization_node,
         kalman_localization_node,
+        pressure_sensor_node,
         controller_node,
     ])
