@@ -2,22 +2,43 @@
 """
 Controller Node — Dual-mode controller (direct force / PID setpoint).
 
-Topics:
-  IN:  /{localization_source}/state  (AuvState)  — current estimated state
-  IN:  /controller/force             (ImuAccel)  — direct 6D force command passthrough
-  IN:  /controller/setpoint          (AuvState)  — PID target (full state setpoint)
-  OUT: /controller/force             (ImuAccel)  — computed force [fx,fy,fz] in linear field
+Error is computed as:
+  e = setpoint (AuvState) - ground_truth (AuvState)
+for all 8 DOF: x, y, z, yaw, vx, vy, vz, wyaw.
 
-NOTE: /control/command and the old /control/force topics are removed.
-The controller now publishes directly on /controller/force which the simulator
-subscribes to as its force input.
+PID implemented with the simple-pid library (one PID instance per DOF).
+
+Topics:
+  IN:  /ground_truth              (AuvState)  — true vehicle state (error reference)
+  IN:  /controller/force_in       (ImuAccel)  — direct 6D force override (bypasses PID)
+  IN:  /controller/setpoint       (AuvState)  — PID target (full 8-DOF setpoint)
+  OUT: /controller/force          (ImuAccel)  — computed force [fx,fy,fz] in linear field
 """
 import rclpy
 from rclpy.node import Node
 import numpy as np
+from simple_pid import PID
 
 from auv_msgs.msg import AuvState, ImuAccel
 from slalom_simulator.utils import normalize_angle
+
+
+# DOF indices into the 8-element state vector
+_X, _Y, _Z, _YAW, _VX, _VY, _VZ, _WYAW = range(8)
+
+
+def _state_to_vec(msg: AuvState) -> np.ndarray:
+    """Flatten AuvState into [x, y, z, yaw, vx, vy, vz, wyaw]."""
+    return np.array([
+        msg.position.x,
+        msg.position.y,
+        msg.position.z,
+        msg.orientation.yaw,
+        msg.velocity.x,
+        msg.velocity.y,
+        msg.velocity.z,
+        msg.angular_velocity.z,
+    ])
 
 
 class ControllerNode(Node):
@@ -27,7 +48,6 @@ class ControllerNode(Node):
         self.declare_parameters(
             namespace='',
             parameters=[
-                ('localization_source', 'imu1'),
                 ('pid_kp', 0.5),
                 ('pid_ki', 0.01),
                 ('pid_kd', 0.1),
@@ -35,70 +55,86 @@ class ControllerNode(Node):
             ]
         )
 
-        self.localization_source = self.get_parameter('localization_source').value
-        self.pid_kp = self.get_parameter('pid_kp').value
-        self.pid_ki = self.get_parameter('pid_ki').value
-        self.pid_kd = self.get_parameter('pid_kd').value
+        kp = self.get_parameter('pid_kp').value
+        ki = self.get_parameter('pid_ki').value
+        kd = self.get_parameter('pid_kd').value
         self.max_control_force = self.get_parameter('max_control_force').value
 
-        self.current_state: AuvState = None
-        self.current_setpoint: AuvState = None   # full AuvState setpoint
-        self.direct_force: np.ndarray = None     # [fx, fy, fz] from external override
+        dt = 1.0 / 100.0   # 100 Hz
 
-        self.integral_error = np.zeros(2)
-        self.last_error = np.zeros(2)
+        # One PID per DOF: x, y, z, yaw, vx, vy, vz, wyaw
+        # Output limits symmetric around 0; scaled to max_control_force
+        lim = self.max_control_force
+        self.pids = [
+            PID(kp, ki, kd, setpoint=0.0, sample_time=dt,
+                output_limits=(-lim, lim))
+            for _ in range(8)
+        ]
 
-        # Output: ImuAccel on /controller/force (simulator listens here)
+        self.ground_truth: AuvState = None
+        self.setpoint: AuvState = None
+        self.direct_force: np.ndarray = None
+
+        # Output
         self.force_pub = self.create_publisher(ImuAccel, '/controller/force', 10)
 
-        state_topic = f'/{self.localization_source}/state'
-        self.state_sub = self.create_subscription(
-            AuvState, state_topic, self.state_callback, 10)
-
-        # Direct force override: ImuAccel (linear.xyz = [fx, fy, fz])
+        # Subscriptions
+        self.gt_sub = self.create_subscription(
+            AuvState, '/ground_truth', self.gt_callback, 10)
         self.force_in_sub = self.create_subscription(
             ImuAccel, '/controller/force_in', self.force_in_callback, 10)
-
-        # Setpoint: full AuvState (uses position.x, position.y for PID target)
         self.setpoint_sub = self.create_subscription(
             AuvState, '/controller/setpoint', self.setpoint_callback, 10)
 
-        self.create_timer(0.05, self.control_loop)  # 20 Hz
+        self.create_timer(dt, self.control_loop)   # 100 Hz
 
-        self.get_logger().info(
-            f'Controller node initialized — source: {self.localization_source}')
+        self.get_logger().info('Controller node initialized — 100 Hz, error = setpoint - ground_truth')
 
-    def state_callback(self, msg: AuvState):
-        self.current_state = msg
+    def gt_callback(self, msg: AuvState):
+        self.ground_truth = msg
 
     def force_in_callback(self, msg: ImuAccel):
         """Direct 6D force override — bypasses PID."""
         self.direct_force = np.array([msg.linear.x, msg.linear.y, msg.linear.z])
-        self.current_setpoint = None
+        self.setpoint = None
 
     def setpoint_callback(self, msg: AuvState):
-        """Set new PID target from AuvState (uses position x,y)."""
-        self.current_setpoint = msg
+        """New PID target; reset all integrators."""
+        self.setpoint = msg
         self.direct_force = None
-        self.integral_error = np.zeros(2)
-        self.last_error = np.zeros(2)
+        sp = _state_to_vec(msg)
+        for i, pid in enumerate(self.pids):
+            pid.setpoint = sp[i]
+            pid.reset()   # clears integral + last error
 
     def control_loop(self):
-        if self.current_state is None:
+        if self.ground_truth is None:
             return
 
         if self.direct_force is not None:
             force_xyz = self.direct_force.copy()
-        elif self.current_setpoint is not None:
-            force_xy = self._pid()
-            mag = np.linalg.norm(force_xy)
-            if mag > self.max_control_force:
-                force_xy = force_xy / mag * self.max_control_force
-            force_xyz = np.array([force_xy[0], force_xy[1], 0.0])
+
+        elif self.setpoint is not None:
+            gt = _state_to_vec(self.ground_truth)
+
+            # Feed current measurement into each PID
+            # simple-pid: output = kp*e + ki*∫e + kd*de/dt  where e = setpoint - measurement
+            outputs = np.array([
+                self.pids[i](gt[i]) for i in range(8)
+            ])
+
+            # Map PID outputs to [fx, fy, fz] — positions/velocities drive forces
+            # XY: position error + velocity error
+            fx = outputs[_X] + outputs[_VX]
+            fy = outputs[_Y] + outputs[_VY]
+            fz = outputs[_Z] + outputs[_VZ]
+
+            force_xyz = np.array([fx, fy, fz])
+
         else:
             force_xyz = np.zeros(3)
 
-        # Overall clamp
+        # Clamp magnitude
         mag = np.linalg.norm(force_xyz)
         if mag > self.max_control_force:
             force_xyz = force_xyz / mag * self.max_control_force
@@ -113,23 +149,6 @@ class ControllerNode(Node):
         msg.angular.y = 0.0
         msg.angular.z = 0.0
         self.force_pub.publish(msg)
-
-    def _pid(self) -> np.ndarray:
-        pos = np.array([
-            self.current_state.position.x,
-            self.current_state.position.y,
-        ])
-        target = np.array([
-            self.current_setpoint.position.x,
-            self.current_setpoint.position.y,
-        ])
-        error = target - pos
-        self.integral_error += error
-        d_term = error - self.last_error
-        self.last_error = error.copy()
-        return (self.pid_kp * error
-                + self.pid_ki * self.integral_error
-                + self.pid_kd * d_term)
 
 
 def main(args=None):
@@ -146,3 +165,4 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
+
