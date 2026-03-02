@@ -8,6 +8,7 @@ setup(
     name=package_name,
     version='0.0.1',
     packages=[package_name],
+    package_data={package_name: ['params.yaml']},
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -27,7 +28,7 @@ setup(
             'simulator_node = slalom_simulator.simulator_node:main',
             'imu1_localization_node = slalom_simulator.imu1_localization_node:main',
             'imu2_localization_node = slalom_simulator.imu2_localization_node:main',
-            'kalman_localization_node = slalom_simulator.kalman_localization_node:main',
+            'ground_truth_localization_node = slalom_simulator.ground_truth_localization_node:main',
             'controller_node = slalom_simulator.controller_node:main',
             'pressure_sensor_node = slalom_simulator.pressure_sensor_node:main',
         ],

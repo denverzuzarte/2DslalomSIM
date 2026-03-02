@@ -23,7 +23,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/GlobalForces.msg"
   "msg/Pose.msg"
   "msg/DVLBeam.msg"
-  "msg/KinematicData.msg"
   "msg/PsData.msg"
   "msg/DVLBeamsArr.msg"
   "msg/NavStatus.msg"
@@ -51,7 +50,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/VisionTask.srv"
   "action/Interrupt.action"
   "msg/CurrentNavId.msg"
-  "msg/ImuAccel.msg"
   DEPENDENCIES geometry_msgs sensor_msgs unique_identifier_msgs std_msgs
 )
 
